@@ -189,7 +189,12 @@
         state.w = cssW;
         state.h = cssH;
 
-        bird.x = Math.floor(cssW * 0.28);
+        const phoneScale = clamp(state.w / 430, 0.78, 1);
+        cfg.pipeSpacing = Math.round(360 * phoneScale);
+        cfg.pipeW = Math.round(80 * phoneScale);
+
+        const birdFrac = state.w < 520 ? 0.22 : 0.28;
+        bird.x = Math.floor(state.w * birdFrac);
       }
 
       function groundY() {
