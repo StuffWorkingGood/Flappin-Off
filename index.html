@@ -7,23 +7,49 @@
   <style>
     :root { color-scheme: light dark; }
     html, body { margin: 0; height: 100%; background: #0b1020; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+
     #wrap { position: fixed; inset: 0; display: grid; place-items: center; }
     canvas { width: 100vw; height: 100vh; display: block; touch-action: manipulation; }
+
     .hud {
-      position: fixed; inset: 0; pointer-events: none;
-      display: grid; grid-template-rows: auto 1fr auto;
-      padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
-               max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      box-sizing: border-box;
+      padding-top: calc(12px + env(safe-area-inset-top));
+      padding-right: calc(12px + env(safe-area-inset-right));
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
+      padding-left: calc(12px + env(safe-area-inset-left));
     }
-    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
     .chip {
-      background: rgba(0,0,0,0.35); color: #fff; border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 999px; padding: 8px 12px; font-weight: 600; font-size: 14px;
+      background: rgba(0,0,0,0.35);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-weight: 700;
+      font-size: 13px;
       backdrop-filter: blur(6px);
+      max-width: calc(50vw - 18px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    .center {
-      display: grid; place-items: center;
-    }
+
+    .center { display: grid; place-items: center; }
+
     .panel {
       pointer-events: none;
       background: rgba(0,0,0,0.35);
@@ -35,10 +61,13 @@
       backdrop-filter: blur(8px);
       box-shadow: 0 10px 40px rgba(0,0,0,0.35);
       text-align: center;
+      box-sizing: border-box;
     }
+
     .title { font-size: 22px; font-weight: 800; margin: 0 0 8px; letter-spacing: 0.2px; }
     .sub { font-size: 14px; margin: 0; opacity: 0.9; line-height: 1.4; }
     .hint { margin-top: 10px; font-size: 13px; opacity: 0.9; }
+
     .footer { display: flex; justify-content: center; }
     .tiny { font-size: 12px; opacity: 0.85; }
   </style>
@@ -57,9 +86,7 @@
     <div class="center">
       <div id="panel" class="panel" style="display:none;">
         <p class="title" id="panelTitle">Flappy Bird</p>
-        <p class="sub" id="panelText">
-          Tap to hop on phones and tablets. Press Space to jump on computers.
-        </p>
+        <p class="sub" id="panelText">Tap to hop on phones and tablets. Press Space to jump on computers.</p>
         <div class="hint" id="panelHint">Tap or press Space to start.</div>
       </div>
     </div>
@@ -83,12 +110,9 @@
       const panelText = document.getElementById("panelText");
       const panelHint = document.getElementById("panelHint");
 
-      const STORAGE_KEY = "flappy_best_v1";
+      const STORAGE_KEY = "flappy_best_v2";
 
       const state = {
-        dpr: 1,
-        w: 0,
-        h: 0,
         tPrev: 0,
         running: false,
         started: false,
@@ -97,15 +121,16 @@
       };
 
       const world = {
-        gravity: 2100,
-        flapVel: -720,
+        gravity: 1650,       // easier than before
+        flapVel: -650,       // slightly gentler jump
         maxFall: 900,
-        pipeGap: 170,
+
+        pipeGap: 210,        // bigger gap = easier
         pipeWidth: 78,
-        pipeSpacing: 300,
-        pipeSpeed: 280,
+        pipeSpacing: 360,    // more distance between pipes = easier
+        pipeSpeed: 255,      // slightly slower = easier
+
         groundHeight: 90,
-        skyTopPad: 0,
       };
 
       const bird = {
@@ -124,7 +149,6 @@
 
       function setCanvasSize() {
         const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-        state.dpr = dpr;
 
         const cssW = Math.floor(window.innerWidth);
         const cssH = Math.floor(window.innerHeight);
@@ -135,16 +159,10 @@
         canvas.width = Math.floor(cssW * dpr);
         canvas.height = Math.floor(cssH * dpr);
 
-        state.w = canvas.width;
-        state.h = canvas.height;
-
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        const wCss = cssW;
-        const hCss = cssH;
-
-        bird.x = Math.floor(wCss * 0.28);
-        bird.y = Math.floor(hCss * 0.45);
+        bird.x = Math.floor(cssW * 0.28);
+        if (!state.started && !state.gameOver) bird.y = Math.floor(cssH * 0.45);
       }
 
       function loadBest() {
@@ -157,15 +175,32 @@
         try { localStorage.setItem(STORAGE_KEY, String(best)); } catch (_) {}
       }
 
+      function makePipe(x) {
+        const hCss = window.innerHeight;
+        const ceiling = 70;
+        const floorPad = world.groundHeight + 50;
+
+        const usable = Math.max(140, hCss - ceiling - floorPad);
+
+        const gap = clamp(world.pipeGap, 160, 260);
+        const center = ceiling + (Math.random() * (usable - gap) + gap / 2);
+
+        const topH = Math.floor(center - gap / 2);
+        const bottomY = Math.floor(center + gap / 2);
+
+        return { x, w: world.pipeWidth, topH, bottomY, passed: false };
+      }
+
       function resetGame(showStartPanel = true) {
         score = 0;
         scoreEl.textContent = "0";
+
         bird.vy = 0;
         bird.rot = 0;
         bird.y = Math.floor(window.innerHeight * 0.45);
 
         pipes = [];
-        const startX = window.innerWidth + 120;
+        const startX = window.innerWidth + 140;
         for (let i = 0; i < 4; i++) {
           pipes.push(makePipe(startX + i * world.pipeSpacing));
         }
@@ -173,6 +208,7 @@
         state.running = true;
         state.started = false;
         state.gameOver = false;
+        state.tPrev = 0;
 
         if (showStartPanel) {
           panelTitle.textContent = "Flappy Bird";
@@ -182,44 +218,6 @@
         } else {
           panel.style.display = "none";
         }
-      }
-
-      function makePipe(x) {
-        const hCss = window.innerHeight;
-        const ceiling = 70;
-        const floor = world.groundHeight + 50;
-        const usable = Math.max(120, hCss - ceiling - floor);
-        const gap = clamp(world.pipeGap, 130, 240);
-        const center = ceiling + (Math.random() * (usable - gap) + gap / 2);
-        const topH = Math.floor(center - gap / 2);
-        const bottomY = Math.floor(center + gap / 2);
-        return {
-          x,
-          w: world.pipeWidth,
-          topH,
-          bottomY,
-          passed: false,
-        };
-      }
-
-      function flap() {
-        if (!state.running) return;
-
-        if (state.gameOver) {
-          resetGame(true);
-          return;
-        }
-
-        if (!state.started) {
-          state.started = true;
-          panel.style.display = "none";
-        }
-
-        bird.vy = world.flapVel;
-      }
-
-      function restart() {
-        resetGame(true);
       }
 
       function circleRectCollide(cx, cy, r, rx, ry, rw, rh) {
@@ -246,12 +244,31 @@
         panel.style.display = "block";
       }
 
+      function flap() {
+        if (!state.running) return;
+
+        if (state.gameOver) {
+          resetGame(true);
+          return;
+        }
+
+        if (!state.started) {
+          state.started = true;
+          panel.style.display = "none";
+        }
+
+        bird.vy = world.flapVel;
+      }
+
+      function restart() {
+        resetGame(true);
+      }
+
       function update(dt) {
         if (!state.running) return;
 
         const wCss = window.innerWidth;
         const hCss = window.innerHeight;
-
         const groundY = hCss - world.groundHeight;
 
         if (!state.started && !state.gameOver) {
@@ -288,9 +305,8 @@
           }
         }
 
-        const leftMost = Math.min(...pipes.map(p => p.x));
         for (let i = 0; i < pipes.length; i++) {
-          if (pipes[i].x + pipes[i].w < -60) {
+          if (pipes[i].x + pipes[i].w < -80) {
             const newX = Math.max(...pipes.map(p => p.x)) + world.pipeSpacing;
             pipes[i] = makePipe(newX);
           }
@@ -300,6 +316,7 @@
           bird.y = bird.r;
           bird.vy = 0;
         }
+
         if (bird.y + bird.r > groundY) {
           bird.y = groundY - bird.r;
           endGame();
@@ -324,54 +341,6 @@
         }
       }
 
-      function draw() {
-        const wCss = window.innerWidth;
-        const hCss = window.innerHeight;
-        const groundY = hCss - world.groundHeight;
-
-        ctx.clearRect(0, 0, wCss, hCss);
-
-        const grad = ctx.createLinearGradient(0, 0, 0, hCss);
-        grad.addColorStop(0, "#7cc7ff");
-        grad.addColorStop(0.55, "#bde6ff");
-        grad.addColorStop(1, "#e9fbff");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, wCss, hCss);
-
-        ctx.globalAlpha = 0.18;
-        ctx.fillStyle = "#ffffff";
-        const t = performance.now() / 1000;
-        for (let i = 0; i < 6; i++) {
-          const cx = (t * 18 + i * 220) % (wCss + 240) - 120;
-          const cy = 80 + (i % 3) * 46;
-          ctx.beginPath();
-          ctx.ellipse(cx, cy, 55, 18, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.beginPath();
-          ctx.ellipse(cx + 40, cy + 6, 65, 22, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.globalAlpha = 1;
-
-        for (const p of pipes) {
-          drawPipe(p, groundY);
-        }
-
-        ctx.fillStyle = "#3d2c1b";
-        ctx.fillRect(0, groundY, wCss, world.groundHeight);
-        ctx.fillStyle = "#4c3a24";
-        for (let x = 0; x < wCss; x += 28) {
-          ctx.fillRect(x, groundY + 8, 14, 10);
-        }
-
-        drawBird();
-
-        if (!state.started && !state.gameOver) {
-          ctx.fillStyle = "rgba(0,0,0,0.15)";
-          ctx.fillRect(0, 0, wCss, hCss);
-        }
-      }
-
       function drawPipe(p, groundY) {
         const x = p.x;
         const w = p.w;
@@ -386,7 +355,6 @@
         pipeGrad.addColorStop(1, "#1f7f38");
 
         ctx.fillStyle = pipeGrad;
-
         ctx.fillRect(x, 0, w, topH);
         ctx.fillRect(x, botY, w, botH);
 
@@ -448,8 +416,53 @@
         ctx.restore();
       }
 
+      function draw() {
+        const wCss = window.innerWidth;
+        const hCss = window.innerHeight;
+        const groundY = hCss - world.groundHeight;
+
+        ctx.clearRect(0, 0, wCss, hCss);
+
+        const grad = ctx.createLinearGradient(0, 0, 0, hCss);
+        grad.addColorStop(0, "#7cc7ff");
+        grad.addColorStop(0.55, "#bde6ff");
+        grad.addColorStop(1, "#e9fbff");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, wCss, hCss);
+
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = "#ffffff";
+        const t = performance.now() / 1000;
+        for (let i = 0; i < 6; i++) {
+          const cx = (t * 18 + i * 220) % (wCss + 240) - 120;
+          const cy = 80 + (i % 3) * 46;
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, 55, 18, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(cx + 40, cy + 6, 65, 22, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        for (const p of pipes) drawPipe(p, groundY);
+
+        ctx.fillStyle = "#3d2c1b";
+        ctx.fillRect(0, groundY, wCss, world.groundHeight);
+        ctx.fillStyle = "#4c3a24";
+        for (let x = 0; x < wCss; x += 28) ctx.fillRect(x, groundY + 8, 14, 10);
+
+        drawBird();
+
+        if (!state.started && !state.gameOver) {
+          ctx.fillStyle = "rgba(0,0,0,0.12)";
+          ctx.fillRect(0, 0, wCss, hCss);
+        }
+      }
+
       function loop(ts) {
         if (!state.running) return;
+
         if (!state.tPrev) state.tPrev = ts;
         const dt = Math.min(0.033, (ts - state.tPrev) / 1000);
         state.tPrev = ts;
@@ -488,10 +501,7 @@
         }
       }
 
-      window.addEventListener("resize", () => {
-        setCanvasSize();
-      });
-
+      window.addEventListener("resize", () => setCanvasSize());
       canvas.addEventListener("pointerdown", onPointerDown, { passive: false });
       window.addEventListener("keydown", onKeyDown);
       document.addEventListener("visibilitychange", onVisibility);
